@@ -41,9 +41,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
+import org.apache.commons.lang3.tuple.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class StreamingPullSubscriber implements CloudPubSubSubscriber {
 
+  private static final Logger log = LoggerFactory.getLogger(StreamingPullSubscriber.class);
+
   private final SubscriberInterface underlying;
+
 
   @GuardedBy("this")
   private Optional<ApiException> error = Optional.empty();
@@ -55,7 +62,11 @@ public class StreamingPullSubscriber implements CloudPubSubSubscriber {
   private long nextId = 0;
 
   @GuardedBy("this")
-  private final Map<String, AckReplyConsumer> ackConsumers = new HashMap<>();
+  private final Map<String, Pair<AckReplyConsumer, Long>> ackConsumers = new HashMap<>();
+  // private final Map<String, AckReplyConsumer> ackConsumers = new HashMap<>();
+
+  // Twitter fork setup
+  private PubSubSourceTwitterStats twitterStats = new PubSubSourceTwitterStats();
 
   @GuardedBy("this")
   private Optional<SettableApiFuture<Void>> notification = Optional.empty();
@@ -103,7 +114,10 @@ public class StreamingPullSubscriber implements CloudPubSubSubscriber {
       notification.get().setException(e);
       notification = Optional.empty();
     }
-    ackConsumers.values().forEach(AckReplyConsumer::nack);
+    // ackConsumers.values().forEach(AckReplyConsumer::nack);
+    for (Pair<AckReplyConsumer, Long> value: ackConsumers.values()) {
+      value.getLeft().nack();
+    }
     ackConsumers.clear();
   }
 
@@ -114,7 +128,8 @@ public class StreamingPullSubscriber implements CloudPubSubSubscriber {
     }
     String ackId = Long.toString(nextId++);
     messages.add(ReceivedMessage.newBuilder().setMessage(message).setAckId(ackId).build());
-    ackConsumers.put(ackId, consumer);
+    ackConsumers.put(ackId, Pair.of(consumer, System.currentTimeMillis()));
+    // ackConsumers.put(ackId, consumer);
     if (notification.isPresent()) {
       notification.get().set(null);
       notification = Optional.empty();
@@ -167,8 +182,17 @@ public class StreamingPullSubscriber implements CloudPubSubSubscriber {
 
   @Override
   public synchronized ApiFuture<Empty> ackMessages(Collection<String> ackIds) {
-    ackIds.forEach(
-        id -> Optional.ofNullable(ackConsumers.remove(id)).ifPresent(AckReplyConsumer::ack));
+    for (String ackId: ackIds) {
+      Optional<Pair<AckReplyConsumer, Long>> id = Optional.ofNullable(ackConsumers.remove(ackId));
+      if (id.isPresent()) {
+        id.get().getLeft().ack();
+        Long latency = System.currentTimeMillis() - id.get().getRight();
+        log.debug("Acked ackId: {}, latency {}", ackId, latency);
+        twitterStats.recordEndToEndLatencyStat(latency);
+      }
+    }
+//    ackIds.forEach(
+//        id -> Optional.ofNullable(ackConsumers.remove(id)).ifPresent(AckReplyConsumer::ack));
     return ApiFutures.immediateFuture(null);
   }
 }

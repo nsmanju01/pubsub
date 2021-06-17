@@ -52,6 +52,7 @@ import org.apache.kafka.connect.source.SourceTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.threeten.bp.Duration;
+import com.google.pubsub.kafka.source.PubSubSourceTwitterStats;
 
 /**
  * A {@link SourceTask} used by a {@link CloudPubSubSourceConnector} to write messages to <a
@@ -77,6 +78,7 @@ public class CloudPubSubSourceTask extends SourceTask {
   private CloudPubSubSubscriber subscriber;
   private final Set<String> standardAttributes = new HashSet<>();
   private boolean useKafkaHeaders;
+  private PubSubSourceTwitterStats twitterStats = new PubSubSourceTwitterStats();
 
   public CloudPubSubSourceTask() {
   }
@@ -203,6 +205,9 @@ public class CloudPubSubSourceTask extends SourceTask {
         if (timestamp == null) {
           timestamp = Timestamps.toMillis(message.getPublishTime());
         }
+        Long latency = System.currentTimeMillis() - timestamp;
+        twitterStats.recordConsumeLatencyStat(latency);
+        log.debug("Parsed message ackId: {}, consumer latency: {}", ackId, latency);
         ByteString messageData = message.getData();
         byte[] messageBytes = messageData.toByteArray();
 
@@ -366,6 +371,7 @@ public class CloudPubSubSourceTask extends SourceTask {
       log.warn("Failed to acknowledge message: " + e);
       return null;
     }, MoreExecutors.directExecutor());
-    log.trace("Committed {}", ackId);
+    Long dur = System.currentTimeMillis() - record.timestamp();
+    log.trace("Committed {}, latency {}", ackId, dur);
   }
 }

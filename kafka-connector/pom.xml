@@ -85,6 +85,14 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>com.twitter</groupId>
+      <artifactId>finagle-stats_2.13</artifactId>
+      <version>21.5.0</version>
+      <!-- Scope is provided so the stats must be loaded from the parent class loader-->
+      <!-- This ensures we load the same StatsReceiver singleton in the parent class loader-->
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
       <groupId>com.google.truth</groupId>
       <artifactId>truth</artifactId>
       <version>1.1.2</version>
